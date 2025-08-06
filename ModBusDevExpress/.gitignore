@@ -1,0 +1,11 @@
+bin/ 
+obj/ 
+publish/ 
+**/bin/ 
+**/obj/ 
+**/publish/ 
+*.log 
+log_*.txt 
+reliable_modbus_*.log 
+*.user 
+*.DotSettings

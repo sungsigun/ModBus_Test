@@ -1,0 +1,41 @@
+# Visual Studio files
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]uild/
+
+# NuGet packages
+packages/
+*.nupkg
+
+# Test results
+TestResults/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Log files
+*.log
+
+# Database files
+*.db
+*.sqlite
+
+# Configuration files with sensitive data
+appsettings.Production.json
+dbconfig.json
+devices.json
+
+# Publish output
+publish/
+C:\Publish/
