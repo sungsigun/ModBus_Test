@@ -1,59 +1,40 @@
-﻿using DevExpress.Xpo;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ModBusDevExpress.Models
 {
-    [Persistent("ModBusData")]  // 테이블명만 고정, DB명은 사용자 설정
-    public class AcquiredData : XPLiteObject
+    [Table("ModBusData")]
+    public class AcquiredData
     {
-        [Key(true)]
-        public Guid Oid
-        {
-            get { return GetPropertyValue<Guid>(nameof(Oid)); }
-            set { SetPropertyValue(nameof(Oid), value); }
-        }
-        public string FacilityCode
-        {
-            get { return GetPropertyValue<string>(nameof(FacilityCode)); }
-            set { SetPropertyValue(nameof(FacilityCode), value); }
-        }
-        public double NumericData
-        {
-            get { return GetPropertyValue<double>(nameof(NumericData)); }
-            set { SetPropertyValue(nameof(NumericData), value); }
-        }
-        public string StringData
-        {
-            get { return GetPropertyValue<string>(nameof(StringData)); }
-            set { SetPropertyValue(nameof(StringData), value); }
-        }
-        public string IPAddres
-        {
-            get { return GetPropertyValue<string>(nameof(IPAddres)); }
-            set { SetPropertyValue(nameof(IPAddres), value); }
-        }
-        public DateTime CreatedDateTime
-        {
-            get { return GetPropertyValue<DateTime>(nameof(CreatedDateTime)); }
-            set { SetPropertyValue(nameof(CreatedDateTime), value); }
-        }
+        [Key]
+        public Guid ID { get; set; }
+        
+        public Guid? CheckCompanyObjectID { get; set; } // GUID 타입 유지
+        
+        public string FacilityCode { get; set; }
+        
+        public double NumericData { get; set; }
+        
+        public string StringData { get; set; }
+        
+        public string IPAddress { get; set; }
+        
+        public Guid? CompanyObjectID { get; set; } // GUID 타입 유지
+        
+        public Guid? FactoryObjectID { get; set; }
+        
+        public DateTime CreateDateTime { get; set; }
+        
+        public string CreateUserId { get; set; } // 회사명 저장용으로 재활용
+        
+        public DateTime ModifiedDate { get; set; }
 
-        #region Constructors
-        public AcquiredData(Session session) : base(session) { }
-        #endregion
-
-        #region Methods
-        public override void AfterConstruction()
+        public AcquiredData()
         {
-            base.AfterConstruction();
-            // Place your initialization code here (https://documentation.devexpress.com/eXpressAppFramework/CustomDocument112834.aspx).
-
-            CreatedDateTime = DateTime.Now;
+            ID = Guid.NewGuid();
+            CreateDateTime = DateTime.Now;
+            ModifiedDate = DateTime.Now;
         }
-        #endregion
     }
 }

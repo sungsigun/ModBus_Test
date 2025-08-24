@@ -1,4 +1,5 @@
 using ModBusDevExpress.Models;
+using ModBusDevExpress.Utils;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,31 +11,7 @@ namespace ModBusDevExpress.Service
 {
     public static class DeviceConfigManager
     {
-        private static string ConfigFilePath
-        {
-            get
-            {
-                // 실행 파일 폴더에 쓰기 권한이 있는지 확인
-                try
-                {
-                    string executablePath = Path.Combine(Application.StartupPath, "devices.json");
-                    string testFile = Path.Combine(Application.StartupPath, "test_write.tmp");
-                    File.WriteAllText(testFile, "test");
-                    File.Delete(testFile);
-                    return executablePath;
-                }
-                catch
-                {
-                    // 실행 파일 폴더에 쓰기 권한이 없으면 Documents 폴더 사용
-                    string documentsPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                        "ModBusApp",
-                        "devices.json"
-                    );
-                    return documentsPath;
-                }
-            }
-        }
+        private static string ConfigFilePath => FilePermissionHelper.GetSafeConfigPath("devices.json");
 
         public static List<ModbusDeviceSettings> LoadDeviceSettings()
         {

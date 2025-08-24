@@ -1,10 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Data.SqlClient;
+using System.Linq;
 using System.Windows.Forms;
 using ModBusDevExpress.Models;
 using ModBusDevExpress.Service;
-using DevExpress.Xpo.DB;
-using DevExpress.Xpo;
 
 namespace ModBusDevExpress.Forms
 {
@@ -29,9 +29,8 @@ namespace ModBusDevExpress.Forms
             {
                 var settings = ConfigManager.LoadDatabaseSettings();
                 
-                // DB 타입 설정
-                rbSqlServer.Checked = settings.DatabaseType == DatabaseType.SqlServer;
-                rbPostgreSQL.Checked = settings.DatabaseType == DatabaseType.PostgreSQL;
+                // DB 타입 설정 (SQL Server만 지원)
+                rbSqlServer.Checked = true;
                 
                 txtServer.Text = settings.Server;
                 nudPort.Value = settings.Port;
@@ -39,6 +38,13 @@ namespace ModBusDevExpress.Forms
                 txtUsername.Text = settings.Username;
                 txtPassword.Text = settings.Password;
                 chkRememberPassword.Checked = settings.RememberPassword;
+                
+                // 🎯 저장된 회사명 설정
+                if (!string.IsNullOrEmpty(settings.SelectedCompany))
+                {
+                    cmbCompany.Items.Add(settings.SelectedCompany);
+                    cmbCompany.SelectedItem = settings.SelectedCompany;
+                }
             }
             catch (Exception ex)
             {
@@ -57,35 +63,23 @@ namespace ModBusDevExpress.Forms
 
                 var testSettings = GetSettingsFromUI();
                 
-                // 🔧 가장 간단하고 안전한 연결 테스트
-                if (testSettings.DatabaseType == DatabaseType.SqlServer)
+                // SQL Server 연결 테스트
+                string connectionString = $"Server={testSettings.Server},{testSettings.Port};Database={testSettings.Database};User Id={testSettings.Username};Password={testSettings.Password};Connection Timeout=5;";
+                
+                using (var connection = new SqlConnection(connectionString))
                 {
-                    // System.Data.SqlClient 사용 (더 안정적)
-                    string connectionString = $"Server={testSettings.Server},{testSettings.Port};Database={testSettings.Database};User Id={testSettings.Username};Password={testSettings.Password};Connection Timeout=5;";
-                    
-                    using (var connection = new SqlConnection(connectionString))
+                    connection.Open();
+                    using (var command = new SqlCommand("SELECT 1", connection))
                     {
-                        connection.Open();
-                        using (var command = new SqlCommand("SELECT 1", connection))
-                        {
-                            command.ExecuteScalar();
-                        }
-                    }
-                }
-                else
-                {
-                    // PostgreSQL은 XPO 방식 사용
-                    string connectionString = testSettings.GetConnectionString();
-                    var tempDataLayer = XpoDefault.GetDataLayer(connectionString, AutoCreateOption.None);
-                    using (var tempUow = new UnitOfWork(tempDataLayer))
-                    {
-                        // 간단한 연결 확인
-                        tempUow.ExecuteScalar("SELECT 1");
+                        command.ExecuteScalar();
                     }
                 }
 
                 MessageBox.Show("데이터베이스 연결에 성공했습니다!", "연결 테스트", 
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
+                
+                // 🎯 연결 성공 시 회사 목록 로드
+                LoadCompanyList();
             }
             catch (Exception ex)
             {
@@ -156,14 +150,30 @@ namespace ModBusDevExpress.Forms
         {
             return new DatabaseSettings
             {
-                DatabaseType = rbSqlServer.Checked ? DatabaseType.SqlServer : DatabaseType.PostgreSQL,
+                DatabaseType = DatabaseType.SqlServer,  // SQL Server만 지원
                 Server = txtServer.Text.Trim(),
                 Port = (int)nudPort.Value,
                 Database = txtDatabase.Text.Trim(),
                 Username = txtUsername.Text.Trim(),
                 Password = txtPassword.Text,
-                RememberPassword = chkRememberPassword.Checked
+                RememberPassword = chkRememberPassword.Checked,
+                SelectedCompany = cmbCompany.SelectedItem?.ToString() ?? "",  // 🎯 선택된 회사명 포함
+                SelectedCompanyGuid = GetSelectedCompanyGuid()  // 🎯 선택된 회사의 GUID 포함
             };
+        }
+        
+        // 회사명-GUID 매핑을 위한 딕셔너리
+        private Dictionary<string, string> companyGuidMap = new Dictionary<string, string>();
+        
+        // 선택된 회사의 GUID 반환
+        private string GetSelectedCompanyGuid()
+        {
+            string selectedCompany = cmbCompany.SelectedItem?.ToString() ?? "";
+            if (companyGuidMap.ContainsKey(selectedCompany))
+            {
+                return companyGuidMap[selectedCompany];
+            }
+            return "";
         }
 
         private void DatabaseType_CheckedChanged(object sender, EventArgs e)
@@ -190,6 +200,129 @@ namespace ModBusDevExpress.Forms
                     txtServer.BackColor = System.Drawing.SystemColors.Control;
                     nudPort.BackColor = System.Drawing.SystemColors.Control;
                 }
+            }
+        }
+
+        // 🎯 DB에서 회사 목록 조회
+        private void LoadCompanyList()
+        {
+            try
+            {
+                var settings = GetSettingsFromUI();
+                List<string> companyList = new List<string>();
+
+                // 🔍 연결 정보 디버깅
+                string debugInfo = $"서버: {settings.Server}, 포트: {settings.Port}, DB: {settings.Database}, 사용자: {settings.Username}";
+                
+                if (settings.DatabaseType == DatabaseType.SqlServer)
+                {
+                    string connectionString = $"Server={settings.Server},{settings.Port};Database={settings.Database};User Id={settings.Username};Password={settings.Password};Connection Timeout=10;TrustServerCertificate=true;";
+                    
+                    try
+                    {
+                        using (var connection = new SqlConnection(connectionString))
+                        {
+                            connection.Open();
+                            
+                            // 🔍 테이블 존재 여부 확인
+                            using (var checkCommand = new SqlCommand("SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'company'", connection))
+                            {
+                                int tableCount = (int)checkCommand.ExecuteScalar();
+                                if (tableCount == 0)
+                                {
+                                    MessageBox.Show("'company' 테이블이 존재하지 않습니다.\n데이터베이스를 확인해주세요.", 
+                                        "테이블 없음", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                    return;
+                                }
+                            }
+                            
+                            // 🔍 회사 데이터 조회
+                            using (var command = new SqlCommand("SELECT CompanyName, Id FROM company ORDER BY CompanyName", connection))
+                            {
+                                using (var reader = command.ExecuteReader())
+                                {
+                                    companyGuidMap.Clear(); // 기존 매핑 정리
+                                    int recordCount = 0;
+                                    
+                                    while (reader.Read())
+                                    {
+                                        string companyName = reader["CompanyName"]?.ToString();
+                                        string companyGuid = reader["Id"]?.ToString();
+                                        recordCount++;
+                                        
+                                        if (!string.IsNullOrEmpty(companyName) && !string.IsNullOrEmpty(companyGuid))
+                                        {
+                                            companyGuidMap[companyName] = companyGuid; // GUID 매핑 저장
+                                            companyList.Add(companyName);
+                                        }
+                                    }
+                                    
+                                    if (recordCount == 0)
+                                    {
+                                        MessageBox.Show("company 테이블에 데이터가 없습니다.", 
+                                            "데이터 없음", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (SqlException sqlEx)
+                    {
+                        string errorMsg = $"데이터베이스 연결 실패\n\n연결 정보: {debugInfo}\n\nSQL 오류: {sqlEx.Message}\n오류 번호: {sqlEx.Number}";
+                        MessageBox.Show(errorMsg, "DB 연결 오류", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+
+                // UI 컨트롤이 있다면 회사 목록 업데이트
+                if (companyList.Count > 0)
+                {
+                    UpdateCompanyComboBox(companyList);
+                    MessageBox.Show($"{companyList.Count}개의 회사를 찾았습니다.", 
+                        "회사 목록 로드 완료", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("조회된 회사가 없습니다.", 
+                        "회사 목록 없음", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"회사 목록을 가져오는데 실패했습니다.\n\n일반 오류: {ex.Message}\n\n상세 정보: {ex.StackTrace}", 
+                    "회사 목록 조회 실패", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // 🎯 회사 콤보박스 업데이트
+        private void UpdateCompanyComboBox(List<string> companies)
+        {
+            // 기존 선택값 백업
+            string currentSelection = cmbCompany.SelectedItem?.ToString();
+            
+            // 콤보박스 업데이트
+            cmbCompany.Items.Clear();
+            if (companies.Count > 0)
+            {
+                cmbCompany.Items.AddRange(companies.ToArray());
+                
+                // 이전 선택값이 있으면 복원, 없으면 첫 번째 항목 선택
+                if (!string.IsNullOrEmpty(currentSelection) && companies.Contains(currentSelection))
+                {
+                    cmbCompany.SelectedItem = currentSelection;
+                }
+                else
+                {
+                    cmbCompany.SelectedIndex = 0;
+                }
+                
+                MessageBox.Show($"회사 목록을 성공적으로 조회했습니다. ({companies.Count}개)", 
+                    "회사 목록 조회", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show("조회된 회사가 없습니다.", "회사 목록", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
     }

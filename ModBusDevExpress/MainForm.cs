@@ -2,6 +2,7 @@
 using ModBusDevExpress.Forms;
 using ModBusDevExpress.Models;
 using ModBusDevExpress.Service;
+using ModBusDevExpress.Utils;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -20,8 +21,7 @@ namespace ModBusDevExpress
     public partial class MainForm : DevExpress.XtraEditors.XtraForm
     {
         private List<ModbusDeviceSettings> activeDevices = new List<ModbusDeviceSettings>();
-        private Timer globalSaveTimer;  // 🎯 전역 저장 타이머
-        private int globalSaveInterval = 60;  // 60초
+        private Timer globalSaveTimer;  // 🎯 전역 저장 타이머 (디바이스별 저장주기 체크용)
         private SaveMethod currentSaveMethod = SaveMethod.Periodic;  // 🎯 현재 저장 방식
 
         // 🔄 자동 디바이스 새로고침 시스템 (하이브리드 방식)
@@ -30,9 +30,9 @@ namespace ModBusDevExpress
         private Dictionary<string, int> deviceFailureCounts = new Dictionary<string, int>();  // 디바이스별 연속 실패 횟수
         private Dictionary<string, DateTime> deviceLastSaveTime = new Dictionary<string, DateTime>();  // 디바이스별 마지막 저장 시간
         private DateTime lastAutoRefreshTime = DateTime.MinValue;  // 마지막 자동 새로고침 시간
-        private const int MAX_CONSECUTIVE_FAILURES = 3;  // 연속 실패 임계값
-        private const double MIN_SAVE_SUCCESS_RATE = 0.5;  // 최소 저장 성공률 (50%)
-        private const int AUTO_REFRESH_COOLDOWN_MINUTES = 10;  // 자동 새로고침 간격 (10분)
+        private const int MAX_CONSECUTIVE_FAILURES = Constants.MAX_CONSECUTIVE_FAILURES;  // 연속 실패 임계값
+        private const double MIN_SAVE_SUCCESS_RATE = Constants.MIN_SAVE_SUCCESS_RATE;  // 최소 저장 성공률 (50%)
+        private const int AUTO_REFRESH_COOLDOWN_MINUTES = Constants.AUTO_REFRESH_COOLDOWN_MINUTES;  // 자동 새로고침 간격 (10분)
 
         public MainForm()
         {
@@ -42,11 +42,11 @@ namespace ModBusDevExpress
             this.Resize += MainForm_Resize; // 리사이즈 시 카드 재배치/리사이즈
         }
         
-        // 🎯 전역 저장 타이머 초기화
+        // 🎯 전역 저장 타이머 초기화 (디바이스별 저장주기 체크용)
         private void InitializeGlobalSaveTimer()
         {
             globalSaveTimer = new Timer();
-            globalSaveTimer.Interval = globalSaveInterval * 1000; // 60초
+            globalSaveTimer.Interval = 30 * 1000; // 30초마다 체크 (디바이스별 저장주기 확인용)
             globalSaveTimer.Tick += GlobalSaveTimer_Tick;
             globalSaveTimer.Start();
 
@@ -60,16 +60,13 @@ namespace ModBusDevExpress
             }
             
             // 로그 기록
-            System.IO.File.AppendAllText(
-                System.IO.Path.Combine(Application.StartupPath, $"log{DateTime.Now:yyyyMMdd}.txt"),
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 전역 저장 타이머 시작 - 간격: {globalSaveInterval}초\r\n" +
+            LoggingHelper.LogSystem($"전역 저장 타이머 시작 - 30초마다 디바이스별 저장주기 체크" +
                 (ENABLE_AUTO_DEVICE_REFRESH
-                    ? $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 자동 새로고침 모니터링 시작 - 간격: 30초\r\n"
-                    : $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 자동 새로고침 모니터링 비활성화\r\n")
-            );
+                    ? "\r\n자동 새로고침 모니터링 시작 - 간격: 30초"
+                    : "\r\n자동 새로고침 모니터링 비활성화"));
         }
         
-        // 🎯 전역 저장 타이머 이벤트 - 모든 디바이스 한번에 저장
+        // 🎯 전역 저장 타이머 이벤트 - 각 디바이스별 저장주기에 따라 저장
         private void GlobalSaveTimer_Tick(object sender, EventArgs e)
         {
             int savedCount = 0;
@@ -89,32 +86,31 @@ namespace ModBusDevExpress
                         if (seconds < deviceSaveInterval)
                         {
                             // 아직 저장 주기 미도달
-                            System.IO.File.AppendAllText(
-                                System.IO.Path.Combine(Application.StartupPath, $"log{DateTime.Now:yyyyMMdd}.txt"),
-                                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 저장 건너뜀 - {device.DeviceName}: 주기 미도달({seconds:F0}/{deviceSaveInterval}s)\r\n"
-                            );
+                            LoggingHelper.LogSystem($"저장 건너뜀 - {device.DeviceName}: 주기 미도달({seconds:F0}/{deviceSaveInterval}s)");
                             continue;
                         }
                     }
 
                     try
                     {
+                        // 🔍 저장 시도 로그 추가
+                        LoggingHelper.LogSystem($"저장 시도 - {device.DeviceName}: SaveDataToDatabase() 호출");
+                        
                         device.DeviceForm.SaveDataToDatabase();
                         savedCount++;
                         
                         // 🔄 저장 성공 시 실패 카운트 리셋 및 마지막 저장 시간 업데이트
                         deviceFailureCounts[deviceKey] = 0;
                         deviceLastSaveTime[deviceKey] = saveTime;
+                        
+                        LoggingHelper.LogSystem($"저장 성공 - {device.DeviceName}");
                     }
                     catch (Exception ex)
                     {
                         // 🔄 저장 실패 시 실패 카운트 증가
                         deviceFailureCounts[deviceKey] = deviceFailureCounts.GetValueOrDefault(deviceKey, 0) + 1;
                         
-                        System.IO.File.AppendAllText(
-                            System.IO.Path.Combine(Application.StartupPath, $"log{DateTime.Now:yyyyMMdd}.txt"),
-                            $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 전역 저장 오류 - {device.DeviceName}: {ex.Message} (연속실패: {deviceFailureCounts[deviceKey]}회)\r\n"
-                        );
+                        LoggingHelper.LogSystem($"전역 저장 오류 - {device.DeviceName}: {ex.Message}\r\n상세 오류: {ex.InnerException?.Message}\r\n스택 트레이스: {ex.StackTrace} (연속실패: {deviceFailureCounts[deviceKey]}회)");
                     }
                 }
             }
@@ -318,8 +314,18 @@ namespace ModBusDevExpress
             var diagMenu = new ToolStripMenuItem("진단(&T)");
             var liveProbeMenu = new ToolStripMenuItem("라이브 모니터 (0.1초)");
             liveProbeMenu.Click += (s, e) => {
-                var probe = new ModBusDevExpress.Forms.LiveProbeForm();
-                probe.Show(this);
+                // 활성화된 첫 번째 디바이스 설정을 사용
+                var deviceSettings = activeDevices.FirstOrDefault();
+                if (deviceSettings != null)
+                {
+                    var probe = new ModBusDevExpress.Forms.LiveProbeForm(deviceSettings);
+                    probe.Show(this);
+                }
+                else
+                {
+                    XtraMessageBox.Show("활성화된 디바이스가 없습니다. 먼저 디바이스를 설정하고 새로고침하세요.", 
+                        "알림", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
             };
             diagMenu.DropDownItems.Add(liveProbeMenu);
 

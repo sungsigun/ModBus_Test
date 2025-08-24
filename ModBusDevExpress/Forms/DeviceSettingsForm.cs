@@ -2,6 +2,7 @@
 using DevExpress.XtraGrid.Views.Grid;
 using ModBusDevExpress.Models;
 using ModBusDevExpress.Service;
+using ModBusDevExpress.Utils;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -32,15 +33,15 @@ namespace ModBusDevExpress.Forms
             {
                 if (nudSaveInterval.Value < nudInterval.Value)
                 {
-                    nudSaveInterval.Value = Math.Max(60, nudInterval.Value * 6);
+                    nudSaveInterval.Value = Math.Max(Constants.DEFAULT_SAVE_INTERVAL_SECONDS, nudInterval.Value * Constants.DEFAULT_SAVE_INTERVAL_MULTIPLIER);
                 }
                 nudSaveInterval.Minimum = nudInterval.Value; // 최소값을 수집주기로 설정
             };
 
             // 저장주기 최소값 설정
-            nudSaveInterval.Minimum = 10;
-            nudSaveInterval.Maximum = 3600;
-            nudSaveInterval.Value = 60;
+            nudSaveInterval.Minimum = Constants.MIN_SAVE_INTERVAL_SECONDS;
+            nudSaveInterval.Maximum = Constants.MAX_SAVE_INTERVAL_SECONDS;
+            nudSaveInterval.Value = Constants.DEFAULT_SAVE_INTERVAL_SECONDS;
         }
 
         private void LoadSettings()
@@ -318,12 +319,12 @@ namespace ModBusDevExpress.Forms
             txtDeviceName.Text = "";
             txtDeviceCode.Text = "";
             txtIPAddress.Text = "";
-            nudPort.Value = 502;
-            nudInterval.Value = 10;
-            nudSaveInterval.Value = 60; // 🎯 저장주기 기본값
-            nudStartAddress.Value = 0;
-            nudDataLength.Value = 10;
-            nudSlaveId.Value = 1;
+            nudPort.Value = Constants.DEFAULT_MODBUS_PORT;
+            nudInterval.Value = Constants.DEFAULT_COLLECT_INTERVAL_SECONDS;
+            nudSaveInterval.Value = Constants.DEFAULT_SAVE_INTERVAL_SECONDS; // 🎯 저장주기 기본값 (실제로는 디바이스별 설정 사용)
+            nudStartAddress.Value = Constants.DEFAULT_START_ADDRESS;
+            nudDataLength.Value = Constants.DEFAULT_DATA_LENGTH;
+            nudSlaveId.Value = Constants.DEFAULT_SLAVE_ID;
             chkActive.Checked = true;
             lbItems.Items.Clear();
             lbMappings.Items.Clear();

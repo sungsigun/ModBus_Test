@@ -1,41 +1,57 @@
-# Visual Studio files
-.vs/
-bin/
-obj/
-*.user
-*.suo
-*.cache
-
 # Build results
 [Dd]ebug/
+[Dd]ebugPublic/
 [Rr]elease/
+[Rr]eleases/
 x64/
 x86/
-[Bb]uild/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
 
 # NuGet packages
-packages/
 *.nupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
 
-# Test results
-TestResults/
+# Log files
+*.log
+log*.txt
+dbdebug_*.txt
+log_counter*.txt
+log_kw*.txt
+reliable_modbus_*.log
 
 # Temporary files
 *.tmp
 *.temp
 
-# Log files
-*.log
-
-# Database files
-*.db
-*.sqlite
-
-# Configuration files with sensitive data
-appsettings.Production.json
+# Database config (contains sensitive info)
 dbconfig.json
-devices.json
 
-# Publish output
+# Build outputs
+*.exe
+*.dll
+*.pdb
+*.dll.config
+sni.dll
+
+# Publish folder
 publish/
-C:\Publish/
+
+# Solution file (optional - keep if needed)
+# *.sln

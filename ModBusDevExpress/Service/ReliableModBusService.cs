@@ -45,7 +45,7 @@ namespace ModBusDevExpress.Service
         private const int CONNECTION_TIMEOUT = 10000;  // 10초 (WiFi 지연 고려)
         private const int MAX_IDLE_TIME = 300000;      // 5분 (300초) 무응답 시 재연결
         private const int HARDWARE_RESET_THRESHOLD = 900000; // 15분 (900초) 무응답 시 하드웨어 리셋 권고
-        private const int PREVENTIVE_RESTART_INTERVAL = 3600000; // 1시간 (3600초) 예방적 재시작
+        private const int PREVENTIVE_RESTART_INTERVAL = 1800000; // 30분 예방적 재시작
         
         // 🚨 485 통신 무응답 감지
         private int _consecutiveFailures = 0;
@@ -54,13 +54,15 @@ namespace ModBusDevExpress.Service
 
         // ⚙️ 가벼운 자동 복구 설정
         private const int LightRecoveryStep1Failures = 2;  // 2회 연속: 타임아웃/주기 완화
-        private const int LightRecoveryStep2Failures = 5;  // 5회 연속: 타이머 재시작 + 연결 새로고침
-        private const int LightRecoveryStep3Failures = 10; // 10회 연속: Modbus 스택 리셋
+        private const int LightRecoveryStep2Failures = 3;  // 3회 연속: 타이머 재시작 + 연결 새로고침
+        private const int LightRecoveryStep3Failures = 6;  // 6회 연속: Modbus 스택 리셋
         private DateTime _lastLightRecovery = DateTime.MinValue;
         private const int LightRecoveryCooldownSec = 30;   // 최소 30초 쿨다운
         
         // 🔄 예방적 재시작
         private readonly Timer _preventiveRestartTimer;
+        private bool _useShortLivedConnections = false;     // 매 폴링 Connect→Read→Close 모드
+        private DateTime _shortLivedModeUntil = DateTime.MinValue; // 자동 해제 시각
         private DateTime _lastPreventiveRestart = DateTime.Now;
         
         // 🔄 연결 풀링 (연결 고착화 방지)
@@ -110,7 +112,8 @@ namespace ModBusDevExpress.Service
             _initialOffsetMs = ComputeInitialOffsetMs(intervalMs);
             _pollTimer = new System.Threading.Timer(async _ =>
             {
-                if (!_isConnected) return;
+                // 단기 연결 모드에서는 _isConnected 여부에 관계없이 1회성 연결을 사용
+                if (!_useShortLivedConnections && !_isConnected) return;
                 if (_cancellationTokenSource.Token.IsCancellationRequested) return;
                 if (_isPolling) return;
                 lock (_pollGate)
@@ -121,7 +124,14 @@ namespace ModBusDevExpress.Service
                 try
                 {
                     // 장치 설정을 기준으로 자동 수집
-                    await ReadRegistersAsync(_deviceSettings.StartAddress, _deviceSettings.DataLength);
+                    if (_useShortLivedConnections)
+                    {
+                        await PollOnceWithTransientConnectionAsync(_deviceSettings.StartAddress, _deviceSettings.DataLength);
+                    }
+                    else
+                    {
+                        await ReadRegistersAsync(_deviceSettings.StartAddress, _deviceSettings.DataLength);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -203,10 +213,10 @@ namespace ModBusDevExpress.Service
                     var parts = _deviceSettings.IPAddress.Split('.');
                     if (parts.Length >= 4 && int.TryParse(parts[3], out int last))
                     {
-                        baseOffset = (last * 47) % 501; // 0~500ms
+                        baseOffset = (last * 47) % 801; // 0~800ms
                     }
                 }
-                baseOffset = (baseOffset + (_deviceSettings.SlaveId * 13)) % 501;
+                baseOffset = (baseOffset + (_deviceSettings.SlaveId * 13)) % 801;
                 // 주기보다 크지 않도록 안전 클램프
                 int safeMax = Math.Max(10, intervalMs - 50);
                 return Math.Min(baseOffset, safeMax);
@@ -214,6 +224,82 @@ namespace ModBusDevExpress.Service
             catch
             {
                 return Math.Min(100, Math.Max(10, intervalMs / 20)); // 기본 5% 정도
+            }
+        }
+
+        /// <summary>
+        /// 단기 연결 모드: 매 폴링마다 Connect → Read → Close 수행
+        /// </summary>
+        private async Task<ushort[]> PollOnceWithTransientConnectionAsync(int startAddress, int count)
+        {
+            try
+            {
+                // 연결 시도
+                var result = _modbus.Connect(_deviceSettings.IPAddress, _deviceSettings.Port);
+                if (result != Result.SUCCESS)
+                {
+                    _totalErrors++;
+                    _consecutiveFailures++;
+                    LogMessage($"🔌 단기연결 Connect 실패: {result}");
+                    TryApplyLightRecovery();
+                    return null;
+                }
+
+                // 읽기
+                ushort[] uRegisters = null;
+                using (var timeoutCts = new CancellationTokenSource(15000))
+                {
+                    await Task.Run(() =>
+                    {
+                        short[] registers = new short[count];
+                        var readRes = _modbus.ReadInputRegisters((byte)_deviceSettings.SlaveId, (ushort)startAddress, (ushort)count, registers);
+                        if (readRes == Result.SUCCESS)
+                        {
+                            uRegisters = new ushort[registers.Length];
+                            for (int i = 0; i < registers.Length; i++) uRegisters[i] = (ushort)registers[i];
+                        }
+                        else
+                        {
+                            LogMessage($"📖 단기연결 읽기 실패: {readRes}");
+                        }
+                    }, timeoutCts.Token);
+                }
+
+                if (uRegisters != null)
+                {
+                    _successfulReads++;
+                    _lastHeartbeat = DateTime.Now;
+                    _lastSuccessfulRead = DateTime.Now;
+                    _consecutiveFailures = 0;
+                    _connectionRefreshCounter = 0;
+                    OnDataReceived(startAddress, uRegisters);
+                    // 안정화되면 자동 해제
+                    if (_useShortLivedConnections && DateTime.Now > _shortLivedModeUntil)
+                    {
+                        _useShortLivedConnections = false;
+                        LogMessage("🔁 단기 연결 모드 자동 해제");
+                    }
+                }
+                else
+                {
+                    _totalErrors++;
+                    _consecutiveFailures++;
+                    TryApplyLightRecovery();
+                }
+
+                return uRegisters;
+            }
+            catch (Exception ex)
+            {
+                _totalErrors++;
+                _consecutiveFailures++;
+                LogMessage($"📖 단기연결 예외: {ex.Message}");
+                TryApplyLightRecovery();
+                return null;
+            }
+            finally
+            {
+                try { _modbus.Close(); } catch { }
             }
         }
 
@@ -825,7 +911,7 @@ namespace ModBusDevExpress.Service
             }
             
             // 🔄 7분 무응답 시 WiFi-RS485 컨버터 원격 리부팅 시도
-            if (timeSinceLastSuccess.TotalMilliseconds > 420000) // 7분
+            if (timeSinceLastSuccess.TotalMilliseconds > 300000) // 5분
             {
                 var timeSinceLastReboot = DateTime.Now - _lastRemoteRebootAttempt;
                 if (timeSinceLastReboot.TotalMinutes >= 30) // 30분 간격으로만 시도
@@ -879,6 +965,10 @@ namespace ModBusDevExpress.Service
                     try { _pollTimer?.Change(Timeout.Infinite, Timeout.Infinite); } catch { }
                     try { _pollTimer?.Change(_initialOffsetMs, _currentPollIntervalMs); } catch { }
                     _ = Task.Run(async () => await RefreshConnection());
+                    // 10분간 단기 연결 모드로 전환하여 세션 고착화 우회
+                    _useShortLivedConnections = true;
+                    _shortLivedModeUntil = DateTime.Now.AddMinutes(10);
+                    LogMessage("🔁 단기 연결 모드 활성화(10분)");
                 }
                 else if (_consecutiveFailures >= LightRecoveryStep1Failures)
                 {
@@ -1110,8 +1200,34 @@ namespace ModBusDevExpress.Service
             // 파일 로그도 기록
             try
             {
-                var logFile = $"reliable_modbus_{DateTime.Now:yyyyMMdd}.log";
-                System.IO.File.AppendAllText(logFile, logMessage + Environment.NewLine);
+                var baseName = $"reliable_modbus_{DateTime.Now:yyyyMMdd}";
+                var logFile = baseName + ".log";
+
+                // 기존 파일이 BOM 없이 만들어졌다면 즉시 별도 파일로 회전하여 BOM 적용
+                try
+                {
+                    if (System.IO.File.Exists(logFile))
+                    {
+                        using (var fs = new System.IO.FileStream(logFile, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite))
+                        {
+                            byte[] head = new byte[Math.Min(3, (int)fs.Length)];
+                            fs.Read(head, 0, head.Length);
+                            bool hasBom = head.Length >= 3 && head[0] == 0xEF && head[1] == 0xBB && head[2] == 0xBF;
+                            if (!hasBom)
+                            {
+                                logFile = baseName + "_utf8.log"; // BOM 적용 파일로 회전
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // UTF-8 with BOM으로 기록하여 한글 깨짐 방지
+                var utf8Bom = new System.Text.UTF8Encoding(true);
+                using (var writer = new System.IO.StreamWriter(logFile, append: true, encoding: utf8Bom))
+                {
+                    writer.WriteLine(logMessage);
+                }
             }
             catch { /* 로그 실패는 무시 */ }
         }

@@ -9,33 +9,7 @@ namespace ModBusDevExpress.Service
     public static class ConfigManager
     {
         // 🔍 설정 파일 저장 경로 (권한 문제 해결)
-        private static string ConfigFilePath
-        {
-            get
-            {
-                // 1순위: 실행 파일 폴더 (쓰기 가능한 경우)
-                string executablePath = Path.Combine(System.Windows.Forms.Application.StartupPath, "dbconfig.json");
-                
-                // 쓰기 권한 확인
-                try
-                {
-                    string testFile = Path.Combine(System.Windows.Forms.Application.StartupPath, "test_write.tmp");
-                    File.WriteAllText(testFile, "test");
-                    File.Delete(testFile);
-                    return executablePath; // 쓰기 가능하면 실행 파일 폴더 사용
-                }
-                catch
-                {
-                    // 2순위: Documents 폴더 (권한 안전)
-                    string documentsPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                        "ModBusApp",
-                        "dbconfig.json"
-                    );
-                    return documentsPath;
-                }
-            }
-        }
+        private static string ConfigFilePath => FilePermissionHelper.GetSafeConfigPath("dbconfig.json");
 
         public static void SaveDatabaseSettings(DatabaseSettings settings)
         {
@@ -62,7 +36,9 @@ namespace ModBusDevExpress.Service
                     Username = EncryptionHelper.Encrypt(settings.Username),  // 🔒 사용자명 암호화
                     Password = settings.RememberPassword ?
                               EncryptionHelper.Encrypt(settings.Password) : "",
-                    RememberPassword = settings.RememberPassword
+                    RememberPassword = settings.RememberPassword,
+                    SelectedCompany = EncryptionHelper.Encrypt(settings.SelectedCompany),  // 🔒 선택된 회사명 암호화
+                    SelectedCompanyGuid = EncryptionHelper.Encrypt(settings.SelectedCompanyGuid)  // 🔒 선택된 회사 GUID 암호화
                 };
 
                 string jsonContent = JsonSerializer.Serialize(configToSave,
@@ -115,7 +91,11 @@ namespace ModBusDevExpress.Service
                         Password = root.TryGetProperty("Password", out var pwd) ?
                                    EncryptionHelper.Decrypt(pwd.GetString() ?? "") : "",
                         RememberPassword = root.TryGetProperty("RememberPassword", out var remember) ?
-                                          remember.GetBoolean() : true
+                                          remember.GetBoolean() : true,
+                        SelectedCompany = root.TryGetProperty("SelectedCompany", out var company) ?
+                                         EncryptionHelper.Decrypt(company.GetString() ?? "") : "",
+                        SelectedCompanyGuid = root.TryGetProperty("SelectedCompanyGuid", out var companyGuid) ?
+                                             EncryptionHelper.Decrypt(companyGuid.GetString() ?? "") : ""
                     };
                 }
             }

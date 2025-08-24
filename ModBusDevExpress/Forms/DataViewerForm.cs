@@ -1,7 +1,5 @@
 ﻿using DevExpress.XtraEditors;
 using DevExpress.XtraGrid.Views.Grid;
-using DevExpress.Xpo;
-using DevExpress.Data.Filtering;
 using ModBusDevExpress.Models;
 using ModBusDevExpress.Service;
 using System;
@@ -11,14 +9,15 @@ using System.Linq;
 using System.Windows.Forms;
 using DevExpress.XtraGrid.Columns;
 using DevExpress.Utils;
+using Microsoft.EntityFrameworkCore;
 
 namespace ModBusDevExpress.Forms
 {
     public partial class DataViewerForm : XtraForm
     {
-        private XPCollection<AcquiredData> dataCollection;
+        private List<AcquiredData> dataCollection;
         private Timer refreshTimer;
-        private UnitOfWork uow; // 🎯 별도 UnitOfWork 사용 (동시성 문제 해결)
+        private ModBusDbContext dbContext; // 🎯 별도 DbContext 사용 (동시성 문제 해결)
         // 📄 페이징 상태
         private int pageSize = 50;
         private int currentPage = 1;
@@ -40,12 +39,13 @@ namespace ModBusDevExpress.Forms
             SetupPagingUI();
         }
         
-        // 🎯 별도 UnitOfWork 초기화
+        // 🎯 별도 DbContext 초기화
         private void InitializeUOW()
         {
             try
             {
-                uow = new UnitOfWork();
+                // 새로운 DbContext 인스턴스 생성
+                dbContext = new ModBusDbContext();
             }
             catch (Exception ex)
             {
@@ -87,7 +87,7 @@ namespace ModBusDevExpress.Forms
                 gridView1.Columns.Clear();
 
                 // ID 컬럼 (숨김)
-                GridColumn colId = gridView1.Columns.AddVisible("Oid");
+                GridColumn colId = gridView1.Columns.AddVisible("ID");
                 colId.Caption = "ID";
                 colId.Visible = false;
 
@@ -109,12 +109,25 @@ namespace ModBusDevExpress.Forms
                 colString.Width = 150;
 
                 // IP 주소
-                GridColumn colIP = gridView1.Columns.AddVisible("IPAddres");
+                GridColumn colIP = gridView1.Columns.AddVisible("IPAddress");
                 colIP.Caption = "IP 주소";
                 colIP.Width = 120;
 
+                // 회사명 컬럼들 추가
+                GridColumn colCompany1 = gridView1.Columns.AddVisible("CreateUserId");
+                colCompany1.Caption = "회사명(User)";
+                colCompany1.Width = 100;
+
+                GridColumn colCompany2 = gridView1.Columns.AddVisible("CheckCompanyObjectID");
+                colCompany2.Caption = "회사명(Check)";
+                colCompany2.Width = 100;
+
+                GridColumn colCompany3 = gridView1.Columns.AddVisible("CompanyObjectID");
+                colCompany3.Caption = "회사명(Company)";
+                colCompany3.Width = 100;
+
                 // 생성 시간
-                GridColumn colCreated = gridView1.Columns.AddVisible("CreatedDateTime");
+                GridColumn colCreated = gridView1.Columns.AddVisible("CreateDateTime");
                 colCreated.Caption = "생성 시간";
                 colCreated.Width = 150;
                 colCreated.DisplayFormat.FormatType = FormatType.DateTime;
@@ -130,7 +143,7 @@ namespace ModBusDevExpress.Forms
                 gridView1.OptionsSelection.MultiSelectMode = DevExpress.XtraGrid.Views.Grid.GridMultiSelectMode.CheckBoxRowSelect;
 
                 // 정렬 설정 (최신 데이터가 위로)
-                gridView1.Columns["CreatedDateTime"].SortOrder = DevExpress.Data.ColumnSortOrder.Descending;
+                gridView1.Columns["CreateDateTime"].SortOrder = DevExpress.Data.ColumnSortOrder.Descending;
             }
             catch (Exception ex)
             {
@@ -242,25 +255,27 @@ namespace ModBusDevExpress.Forms
                 gridControl1.DataSource = null;
                 Application.DoEvents(); // UI 업데이트
 
-                // 🚀 XPO CriteriaOperator 사용 (하드코딩 제거)
-                var dateFilter = CriteriaOperator.And(
-                    new BinaryOperator(nameof(AcquiredData.CreatedDateTime), fromDate, BinaryOperatorType.GreaterOrEqual),
-                    new BinaryOperator(nameof(AcquiredData.CreatedDateTime), toDate.AddDays(1), BinaryOperatorType.Less)
-                );
+                // 🔍 디버깅: 전체 데이터 확인
+                int allDataCount = dbContext.ModBusData.Count();
+                
+                int dateRangeCount = dbContext.ModBusData
+                    .Where(a => a.CreateDateTime >= fromDate && a.CreateDateTime < toDate.AddDays(1))
+                    .Count();
 
-                CriteriaOperator finalCriteria = dateFilter;
+                // 🎯 총 건수 계산
+                var query = dbContext.ModBusData
+                    .Where(a => a.CreateDateTime >= fromDate && a.CreateDateTime < toDate.AddDays(1));
 
                 if (!string.IsNullOrEmpty(facilityCode))
                 {
-                    var facilityFilter = new BinaryOperator(nameof(AcquiredData.FacilityCode), facilityCode, BinaryOperatorType.Equal);
-                    finalCriteria = CriteriaOperator.And(dateFilter, facilityFilter);
+                    query = query.Where(a => a.FacilityCode == facilityCode);
                 }
 
-                // 🎯 총 건수 계산
-                totalRecords = (int)uow.Query<AcquiredData>().Where(a =>
-                    a.CreatedDateTime >= fromDate && a.CreatedDateTime < toDate.AddDays(1) &&
-                    (string.IsNullOrEmpty(facilityCode) ? true : a.FacilityCode == facilityCode)
-                ).Count();
+                totalRecords = query.Count();
+
+                // 🔍 디버깅 정보 표시
+                string debugInfo = $"전체 DB: {allDataCount}건, 날짜범위: {dateRangeCount}건, 필터결과: {totalRecords}건";
+                this.Text = $"데이터 조회 - {debugInfo}";
 
                 // 페이지 유효성 보정
                 totalPages = Math.Max(1, (int)Math.Ceiling(totalRecords / (double)pageSize));
@@ -268,15 +283,11 @@ namespace ModBusDevExpress.Forms
                 int skip = (currentPage - 1) * pageSize;
 
                 // 🎯 페이지 데이터 조회
-                var pageQuery = uow.Query<AcquiredData>()
-                    .Where(a => a.CreatedDateTime >= fromDate && a.CreatedDateTime < toDate.AddDays(1) &&
-                                (string.IsNullOrEmpty(facilityCode) ? true : a.FacilityCode == facilityCode))
-                    .OrderByDescending(a => a.CreatedDateTime)
+                var pageData = query
+                    .OrderByDescending(a => a.CreateDateTime)
                     .Skip(skip)
                     .Take(pageSize)
                     .ToList();
-
-                var pageData = pageQuery; // List<AcquiredData>
 
                 // 🔍 결과 확인 및 안전 처리
                 if (pageData != null)
@@ -304,7 +315,16 @@ namespace ModBusDevExpress.Forms
             {
                 gridControl1.DataSource = null;
                 lblRecordCount.Text = "총 0건 (오류 발생)";
-                XtraMessageBox.Show($"데이터 로드 실패: {ex.Message}\n\n조건을 다시 확인해주세요.", "조회 오류", 
+                
+                // 🔍 상세 오류 정보 표시
+                string errorDetails = $"조회 조건:\n" +
+                    $"- 시작일: {fromDate:yyyy-MM-dd}\n" +
+                    $"- 종료일: {toDate:yyyy-MM-dd}\n" +
+                    $"- 설비코드: {(string.IsNullOrEmpty(facilityCode) ? "전체" : facilityCode)}\n\n" +
+                    $"오류 메시지: {ex.Message}\n\n" +
+                    $"상세 오류: {ex.InnerException?.Message}";
+                    
+                XtraMessageBox.Show(errorDetails, "조회 오류", 
                                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -317,7 +337,7 @@ namespace ModBusDevExpress.Forms
                 cmbFacility.Properties.Items.Clear();
                 
                 // 🔍 데이터 존재 여부 먼저 확인
-                int dataCount = uow.Query<AcquiredData>().Count();
+                int dataCount = dbContext.ModBusData.Count();
                 if (dataCount == 0)
                 {
                     cmbFacility.Properties.Items.Add("데이터 없음");
@@ -327,8 +347,8 @@ namespace ModBusDevExpress.Forms
                     return;
                 }
 
-                // 🎯 설비 목록 로드 (개수 표시는 제거)
-                var facilityData = uow.Query<AcquiredData>()
+                // 🎯 설비 목록 로드
+                var facilityData = dbContext.ModBusData
                     .Where(x => !string.IsNullOrEmpty(x.FacilityCode))
                     .Select(x => x.FacilityCode)
                     .Distinct()
@@ -346,7 +366,6 @@ namespace ModBusDevExpress.Forms
                 }
 
                 // 🎯 "전체" 옵션 추가 (개수 표시 제거)
-                int totalCount = uow.Query<AcquiredData>().Count();
                 cmbFacility.Properties.Items.Add("전체");
 
                 // 🎯 각 설비 추가 (개수 표시 제거)
@@ -500,10 +519,10 @@ namespace ModBusDevExpress.Forms
 
                     foreach (var item in itemsToDelete)
                     {
-                        uow.Delete(item);
+                        dbContext.ModBusData.Remove(item);
                     }
 
-                    uow.CommitChanges();
+                    dbContext.SaveChanges();
                     RefreshData();
 
                     XtraMessageBox.Show($"{itemsToDelete.Count}개 항목이 삭제되었습니다.", "삭제 완료");
@@ -521,8 +540,8 @@ namespace ModBusDevExpress.Forms
             refreshTimer?.Stop();
             refreshTimer?.Dispose();
             
-            // 🎯 별도 UnitOfWork 정리
-            uow?.Dispose();
+            // 🎯 별도 DbContext 정리
+            dbContext?.Dispose();
             
             base.OnFormClosed(e);
         }

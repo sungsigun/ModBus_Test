@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using ModBusDevExpress.Utils;
 
 namespace ModBusDevExpress.Models
 {
@@ -8,9 +9,9 @@ namespace ModBusDevExpress.Models
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public string IPAddress { get; set; } = "";
-        public int Port { get; set; } = 502;
-        public int Interval { get; set; } = 10;        // 🎯 수집 주기 (초)
-        public int SaveInterval { get; set; } = 60;    // 🎯 저장 주기 (초) - 활용
+        public int Port { get; set; } = Constants.DEFAULT_MODBUS_PORT;
+        public int Interval { get; set; } = Constants.DEFAULT_COLLECT_INTERVAL_SECONDS;        // 🎯 수집 주기 (초)
+        public int SaveInterval { get; set; } = Constants.DEFAULT_SAVE_INTERVAL_SECONDS;    // 🎯 저장 주기 (초) - 활용
         public int StartAddress { get; set; } = 0;
         public int DataLength { get; set; } = 10;
         public int SlaveId { get; set; } = 1;
@@ -95,7 +96,7 @@ namespace ModBusDevExpress.Models
                 else
                 {
                     // 기본값: 수집주기의 6배 또는 최소 60초
-                    settings.SaveInterval = Math.Max(60, settings.Interval * 6);
+                    settings.SaveInterval = Math.Max(Constants.DEFAULT_SAVE_INTERVAL_SECONDS, settings.Interval * Constants.DEFAULT_SAVE_INTERVAL_MULTIPLIER);
                 }
 
                 return settings;
@@ -110,7 +111,7 @@ namespace ModBusDevExpress.Models
         public ModbusDeviceSettings()
         {
             // 기본 저장주기는 60초
-            SaveInterval = 60;
+            SaveInterval = Constants.DEFAULT_SAVE_INTERVAL_SECONDS;
         }
 
         // 🎯 설정 유효성 검사
@@ -133,7 +134,7 @@ namespace ModBusDevExpress.Models
         {
             if (SaveInterval < Interval)
             {
-                SaveInterval = Math.Max(60, Interval * 6);
+                SaveInterval = Math.Max(Constants.DEFAULT_SAVE_INTERVAL_SECONDS, Interval * Constants.DEFAULT_SAVE_INTERVAL_MULTIPLIER);
             }
         }
     }

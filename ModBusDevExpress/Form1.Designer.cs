@@ -154,7 +154,7 @@
             button1.Name = "button1";
             button1.Size = new System.Drawing.Size(80, 32);
             button1.TabIndex = 6;
-            button1.Text = "리셋";
+            button1.Text = "리스타트";
             button1.UseVisualStyleBackColor = false;
             button1.Click += button1_Click;
             // 

@@ -1,5 +1,4 @@
-﻿using DevExpress.LookAndFeel;
-using ModBusDevExpress.Service;
+﻿using ModBusDevExpress.Service;
 using System;
 using System.Windows.Forms;
 

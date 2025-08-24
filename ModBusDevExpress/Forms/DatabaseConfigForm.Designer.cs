@@ -22,6 +22,8 @@
         private System.Windows.Forms.RadioButton rbSqlServer;
         private System.Windows.Forms.GroupBox grpServer;
         private System.Windows.Forms.GroupBox grpAuth;
+        private System.Windows.Forms.Label lblCompany;
+        private System.Windows.Forms.ComboBox cmbCompany;
 
         protected override void Dispose(bool disposing)
         {
@@ -48,6 +50,8 @@
             this.lblPassword = new System.Windows.Forms.Label();
             this.txtPassword = new System.Windows.Forms.TextBox();
             this.chkRememberPassword = new System.Windows.Forms.CheckBox();
+            this.lblCompany = new System.Windows.Forms.Label();
+            this.cmbCompany = new System.Windows.Forms.ComboBox();
             this.btnTest = new System.Windows.Forms.Button();
             this.btnOK = new System.Windows.Forms.Button();
             this.btnCancel = new System.Windows.Forms.Button();
@@ -183,9 +187,11 @@
             this.grpAuth.Controls.Add(this.lblPassword);
             this.grpAuth.Controls.Add(this.txtPassword);
             this.grpAuth.Controls.Add(this.chkRememberPassword);
+            this.grpAuth.Controls.Add(this.lblCompany);
+            this.grpAuth.Controls.Add(this.cmbCompany);
             this.grpAuth.Location = new System.Drawing.Point(15, 195);
             this.grpAuth.Name = "grpAuth";
-            this.grpAuth.Size = new System.Drawing.Size(420, 120);
+            this.grpAuth.Size = new System.Drawing.Size(420, 155);
             this.grpAuth.TabIndex = 6;
             this.grpAuth.TabStop = false;
             this.grpAuth.Text = "인증 정보";
@@ -242,10 +248,29 @@
             this.chkRememberPassword.UseVisualStyleBackColor = true;
 
             // 
+            // lblCompany
+            // 
+            this.lblCompany.AutoSize = true;
+            this.lblCompany.Location = new System.Drawing.Point(15, 120);
+            this.lblCompany.Name = "lblCompany";
+            this.lblCompany.Size = new System.Drawing.Size(41, 12);
+            this.lblCompany.TabIndex = 5;
+            this.lblCompany.Text = "회사명:";
+
+            // 
+            // cmbCompany
+            // 
+            this.cmbCompany.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbCompany.Location = new System.Drawing.Point(80, 117);
+            this.cmbCompany.Name = "cmbCompany";
+            this.cmbCompany.Size = new System.Drawing.Size(320, 20);
+            this.cmbCompany.TabIndex = 6;
+
+            // 
             // btnTest
             // 
             this.btnTest.BackColor = System.Drawing.Color.LightSteelBlue;
-            this.btnTest.Location = new System.Drawing.Point(160, 330);
+            this.btnTest.Location = new System.Drawing.Point(160, 365);
             this.btnTest.Name = "btnTest";
             this.btnTest.Size = new System.Drawing.Size(100, 35);
             this.btnTest.TabIndex = 7;
@@ -258,7 +283,7 @@
             // 
             this.btnOK.BackColor = System.Drawing.Color.LightGreen;
             this.btnOK.DialogResult = System.Windows.Forms.DialogResult.OK;
-            this.btnOK.Location = new System.Drawing.Point(250, 380);
+            this.btnOK.Location = new System.Drawing.Point(250, 415);
             this.btnOK.Name = "btnOK";
             this.btnOK.Size = new System.Drawing.Size(80, 35);
             this.btnOK.TabIndex = 8;
@@ -271,7 +296,7 @@
             // 
             this.btnCancel.BackColor = System.Drawing.Color.LightCoral;
             this.btnCancel.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.btnCancel.Location = new System.Drawing.Point(350, 380);
+            this.btnCancel.Location = new System.Drawing.Point(350, 415);
             this.btnCancel.Name = "btnCancel";
             this.btnCancel.Size = new System.Drawing.Size(80, 35);
             this.btnCancel.TabIndex = 9;
@@ -285,7 +310,7 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.btnCancel;
-            this.ClientSize = new System.Drawing.Size(450, 440);
+            this.ClientSize = new System.Drawing.Size(450, 475);
             this.Controls.Add(this.grpDbType);
             this.Controls.Add(this.grpServer);
             this.Controls.Add(this.grpAuth);

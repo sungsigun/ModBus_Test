@@ -1,6 +1,4 @@
-﻿using DevExpress.Xpo.DB;
-using DevExpress.Xpo;
-using ModBusDevExpress.Models;
+﻿using ModBusDevExpress.Models;
 using ModBusDevExpress.Service;
 using System;
 
@@ -26,7 +24,7 @@ namespace ModBusDevExpress.Service
         // 🎯 현재 세션에서만 사용할 임시 비밀번호 저장
         private static string _temporaryPassword = "";
 
-        public readonly UnitOfWork UOW;
+        public readonly ModBusDbContext DbContext;
 
         private SessionService()
         {
@@ -57,33 +55,34 @@ namespace ModBusDevExpress.Service
                     throw new InvalidOperationException("비밀번호가 필요합니다.");
                 }
 
-                // 🔧 DatabaseConfigForm과 정확히 동일한 연결 문자열 사용
-                string connectionString;
-                if (settings.DatabaseType == DatabaseType.SqlServer)
+                // 🎯 임시 비밀번호를 설정에 적용
+                var tempSettings = new DatabaseSettings
                 {
-                    // ✅ DatabaseConfigForm과 동일한 방식: 간단한 연결 문자열
-                    connectionString = $"Server={settings.Server},{settings.Port};Database={settings.Database};User Id={settings.Username};Password={passwordToUse};Connection Timeout=30;";
-                    // XPO용으로 변환
-                    connectionString = MSSqlConnectionProvider.GetConnectionString(
-                        $"{settings.Server},{settings.Port}", 
-                        settings.Username, 
-                        passwordToUse, 
-                        settings.Database);
-                }
-                else
-                {
-                    // PostgreSQL: 기존 방식 사용
-                    connectionString = settings.GetConnectionString().Replace(settings.Password, passwordToUse);
-                }
+                    DatabaseType = settings.DatabaseType,
+                    Server = settings.Server,
+                    Port = settings.Port,
+                    Database = settings.Database,
+                    Username = settings.Username,
+                    Password = passwordToUse,
+                    RememberPassword = settings.RememberPassword,
+                    SelectedCompany = settings.SelectedCompany
+                };
 
-                XpoDefault.DataLayer = XpoDefault.GetDataLayer(connectionString, AutoCreateOption.None);
-                UOW = new UnitOfWork();
+                // 임시로 설정을 업데이트 (DbContext에서 사용하기 위해)
+                _tempDatabaseSettings = tempSettings;
+
+                DbContext = new ModBusDbContext();
+                
+                // 데이터베이스 생성 확인
+                DbContext.Database.EnsureCreated();
             }
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"데이터베이스 초기화 실패: {ex.Message}", ex);
             }
         }
+
+        private static DatabaseSettings _tempDatabaseSettings;
 
         // 🎯 임시 비밀번호 설정 (현재 세션에서만 유효)
         public static void SetTemporaryPassword(string password)
@@ -102,9 +101,9 @@ namespace ModBusDevExpress.Service
         {
             try
             {
-                if (instance?.UOW != null)
+                if (instance?.DbContext != null)
                 {
-                    instance.UOW.Dispose();
+                    instance.DbContext.Dispose();
                 }
             }
             catch (Exception ex)
@@ -112,7 +111,7 @@ namespace ModBusDevExpress.Service
                 // 로그 기록만 하고 계속 진행
                 System.IO.File.AppendAllText(
                     System.IO.Path.Combine(System.Windows.Forms.Application.StartupPath, $"log{DateTime.Now:yyyyMMdd}.txt"),
-                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} SessionService 리셋 중 기존 UOW 해제 오류: {ex.Message}\r\n"
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} SessionService 리셋 중 기존 DbContext 해제 오류: {ex.Message}\r\n"
                 );
             }
             finally
@@ -121,9 +120,15 @@ namespace ModBusDevExpress.Service
             }
         }
 
-        public void InsertOrUpdate()
+        public void SaveChanges()
         {
-            UOW.CommitChanges();
+            DbContext.SaveChanges();
+        }
+
+        // 🎯 임시 설정 접근자 (DbContext에서 사용)
+        public static DatabaseSettings GetCurrentSettings()
+        {
+            return _tempDatabaseSettings ?? ConfigManager.LoadDatabaseSettings();
         }
     }
 }

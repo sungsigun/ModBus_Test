@@ -18,6 +18,8 @@ namespace ModBusDevExpress.Models
         public string Username { get; set; } = "";
         public string Password { get; set; } = "";
         public bool RememberPassword { get; set; } = true;
+        public string SelectedCompany { get; set; } = ""; // 선택된 회사명 저장
+        public string SelectedCompanyGuid { get; set; } = ""; // 선택된 회사의 GUID 저장
 
         public string GetConnectionString()
         {
